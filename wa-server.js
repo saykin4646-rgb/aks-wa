@@ -10,6 +10,7 @@ try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
 let waStatus = 'disconnected';
 let waQR = null;
 let waClient = null;
+let waLastError = null;
 
 function log(m) { console.log('[WA-SRV] ' + m); }
 
@@ -20,10 +21,15 @@ async function initWA() {
     const puppeteer = require('puppeteer');
     executablePath = typeof puppeteer.executablePath === 'function'
       ? puppeteer.executablePath() : puppeteer.executablePath;
-  } catch (_) {}
+    log('puppeteer path: ' + executablePath);
+  } catch (e) { log('puppeteer require yok: ' + e.message); }
+  const homeCache = process.env.HOME ? path.join(process.env.HOME, '.cache/puppeteer') : null;
+  if (homeCache) log('cache bak: ' + homeCache + ' var=' + fs.existsSync(homeCache));
   const cands = [executablePath, process.env.PUPPETEER_EXECUTABLE_PATH,
-    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean);
+    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/opt/render/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome'].filter(Boolean);
   executablePath = cands.find(p => { try { return fs.existsSync(p); } catch (_) { return false; } });
+  log('secilen chrome: ' + (executablePath || 'YOK (varsayılan denenecek)'));
 
   if (waClient) { try { await waClient.destroy(); } catch (_) {} waClient = null; }
   waClient = new Client({
@@ -34,9 +40,9 @@ async function initWA() {
   waClient.on('authenticated', () => { waStatus = 'connecting'; waQR = null; log('doğrulandı'); });
   waClient.on('ready', () => { waStatus = 'ready'; waQR = null; log('bağlandı ✓'); });
   waClient.on('disconnected', () => { waStatus = 'disconnected'; waQR = null; log('bağlantı koptu'); });
-  waClient.on('auth_failure', (m) => { waStatus = 'auth_failure'; waQR = null; log('hata: ' + m); });
+  waClient.on('auth_failure', (m) => { waStatus = 'auth_failure'; waQR = null; waLastError = String(m || 'auth_failure'); log('hata: ' + m); });
   waStatus = 'connecting';
-  try { await waClient.initialize(); } catch (e) { waStatus = 'auth_failure'; log('init hata: ' + e.message); }
+  try { await waClient.initialize(); } catch (e) { waStatus = 'auth_failure'; waLastError = String((e && e.message) || e); log('init hata: ' + waLastError); }
 }
 
 function normPhone(p) {
@@ -62,7 +68,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (url.pathname === '/' || url.pathname === '/health') {
-    res.end(JSON.stringify({ ok: true, status: waStatus, time: new Date().toISOString() }));
+    res.end(JSON.stringify({ ok: true, status: waStatus, lastError: waLastError, time: new Date().toISOString() }));
   } else if (url.pathname === '/qr') {
     res.end(JSON.stringify({ status: waStatus, qr: waQR }));
   } else if (url.pathname === '/qr.png') {

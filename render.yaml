@@ -3,7 +3,7 @@ services:
     name: aks-wa
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install && npx puppeteer browsers install chrome
     startCommand: node wa-server.js
     healthCheckPath: /health
     envVars:
