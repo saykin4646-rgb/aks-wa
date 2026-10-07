@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: aks-wa
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node wa-server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0

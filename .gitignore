@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist*/
+.wwebjs_cache/
+*/.wwebjs_cache/
+aks-data/
+wa-session/
+.wa-session/
+VERIYEDEGI/
+*.zip
+shot*.png
+.cache/
