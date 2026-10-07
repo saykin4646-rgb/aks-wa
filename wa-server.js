@@ -11,8 +11,16 @@ let waStatus = 'disconnected';
 let waQR = null;
 let waClient = null;
 let waLastError = null;
+let waFailCount = 0;
+let waReinitTimer = null;
 
 function log(m) { console.log('[WA-SRV] ' + m); }
+
+function scheduleReinit(ms, reason) {
+  if (waReinitTimer) return;
+  log('yeniden başlatma planlandı (' + reason + ', ' + ms + 'ms)');
+  waReinitTimer = setTimeout(() => { waReinitTimer = null; initWA(); }, ms);
+}
 
 async function initWA() {
   const { Client, LocalAuth } = require('whatsapp-web.js');
@@ -56,15 +64,33 @@ async function initWA() {
   if (waClient) { try { await waClient.destroy(); } catch (_) {} waClient = null; }
   waClient = new Client({
     authStrategy: new LocalAuth({ clientId: 'aks-render', dataPath: DATA_DIR }),
-    puppeteer: { executablePath, headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] }
+    takeoverOnConflict: true,
+    takeoverTimeoutMs: 15000,
+    puppeteer: { executablePath, headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] }
   });
   waClient.on('qr', (qr) => { waQR = qr; waStatus = 'qr'; log('QR hazır'); });
-  waClient.on('authenticated', () => { waStatus = 'connecting'; waQR = null; log('doğrulandı'); });
-  waClient.on('ready', () => { waStatus = 'ready'; waQR = null; log('bağlandı ✓'); });
-  waClient.on('disconnected', () => { waStatus = 'disconnected'; waQR = null; log('bağlantı koptu'); });
-  waClient.on('auth_failure', (m) => { waStatus = 'auth_failure'; waQR = null; waLastError = String(m || 'auth_failure'); log('hata: ' + m); });
+  waClient.on('authenticated', () => { waStatus = 'connecting'; waQR = null; waFailCount = 0; log('doğrulandı'); });
+  waClient.on('ready', () => { waStatus = 'ready'; waQR = null; waFailCount = 0; log('bağlandı ✓'); });
+  waClient.on('disconnected', (reason) => {
+    waStatus = 'disconnected'; waQR = null;
+    log('bağlantı koptu: ' + reason);
+    scheduleReinit(10000, 'disconnected');
+  });
+  waClient.on('auth_failure', (m) => {
+    waStatus = 'auth_failure'; waQR = null; waLastError = String(m || 'auth_failure'); waFailCount++;
+    log('hata: ' + m + ' (fail=' + waFailCount + ')');
+    if (waFailCount >= 3) {
+      // bozuk oturum diski temizle, sıfırdan QR üret
+      try { fs.rmSync(path.join(DATA_DIR, 'session-aks-render'), { recursive: true, force: true }); } catch (_) {}
+      try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch (_) {}
+      try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
+      waFailCount = 0;
+      log('oturum temizlendi, sıfırdan QR üretilecek');
+    }
+    scheduleReinit(10000, 'auth_failure');
+  });
   waStatus = 'connecting';
-  try { await waClient.initialize(); } catch (e) { waStatus = 'auth_failure'; waLastError = String((e && e.message) || e); log('init hata: ' + waLastError); }
+  try { await waClient.initialize(); } catch (e) { waStatus = 'auth_failure'; waLastError = String((e && e.message) || e); log('init hata: ' + waLastError); scheduleReinit(15000, 'init-hata'); }
 }
 
 function normPhone(p) {
