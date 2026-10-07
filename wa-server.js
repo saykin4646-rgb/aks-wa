@@ -25,7 +25,29 @@ async function initWA() {
   } catch (e) { log('puppeteer require yok: ' + e.message); }
   const homeCache = process.env.HOME ? path.join(process.env.HOME, '.cache/puppeteer') : null;
   if (homeCache) log('cache bak: ' + homeCache + ' var=' + fs.existsSync(homeCache));
-  const cands = [executablePath, process.env.PUPPETEER_EXECUTABLE_PATH,
+  log('HOME=' + process.env.HOME + ' PUPPETEER_CACHE_DIR=' + (process.env.PUPPETEER_CACHE_DIR || 'yok'));
+  // build'de inen chrome runtime'da silinebiliyor -> proje içine de bak
+  function findChrome(base) {
+    try {
+      if (!base || !fs.existsSync(base)) return null;
+      const stack = [base];
+      while (stack.length) {
+        const d = stack.pop();
+        let ents = [];
+        try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (_) { continue; }
+        for (const e of ents) {
+          const p = path.join(d, e.name);
+          if (e.isFile() && (e.name === 'chrome' || e.name === 'chrome.exe')) return p;
+          if (e.isDirectory() && stack.length < 60) stack.push(p);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+  const localCache = path.join(__dirname, '.cache', 'puppeteer');
+  const foundLocal = findChrome(localCache) || findChrome(homeCache) || findChrome('/opt/render/.cache/puppeteer') || findChrome(process.env.PUPPETEER_CACHE_DIR);
+  if (foundLocal) log('taramada bulundu: ' + foundLocal);
+  const cands = [executablePath, foundLocal, process.env.PUPPETEER_EXECUTABLE_PATH,
     '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
     '/opt/render/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome'].filter(Boolean);
   executablePath = cands.find(p => { try { return fs.existsSync(p); } catch (_) { return false; } });
